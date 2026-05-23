@@ -101,6 +101,25 @@ const Admin: React.FC = () => {
   };
 
   // --- Users Handlers ---
+  const handleToggleLocationActive = async (location: Location) => {
+    try {
+      const updated = await updateLocation(location.id, { is_active: !location.is_active });
+      setLocations(prev => prev.map(l => l.id === updated.id ? updated : l));
+    } catch (err) {
+      setError('Ошибка обновления статуса');
+    }
+  };
+
+  const handleDeleteLocation = async (id: string) => {
+    try {
+      await deleteLocation(id);
+      setLocations(prev => prev.filter(l => l.id !== id));
+    } catch (err) {
+      setError('Ошибка удаления локации');
+    }
+  };
+
+  // --- Users Handlers ---
   const handleUserBalanceChange = async (userId: string, balance: number) => {
     try {
       const updated = await updateUserAdmin(userId, { balance_generations: balance });
@@ -228,13 +247,11 @@ const Admin: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {/* LOCATIONS TAB */}
             {activeTab === 'locations' && (
               <div className="card">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-lg font-bold text-white">Управление локациями</h3>
-                  <button onClick={() => setEditingLocation({ isActive: true, sort_order: locations.length })} className="px-4 py-2 bg-purple-600 rounded-lg text-sm text-white">
+                  <button onClick={() => setEditingLocation({ is_active: true, sort_order: locations.length })} className="px-4 py-2 bg-purple-600 rounded-lg text-sm text-white hover:bg-purple-700 transition-colors">
                     + Добавить
                   </button>
                 </div>
@@ -242,15 +259,79 @@ const Admin: React.FC = () => {
                 {editingLocation && (
                   <div className="mb-8 p-4 bg-gray-800 rounded-lg border border-gray-700">
                     <div className="grid grid-cols-2 gap-4 mb-4">
-                      <input placeholder="Название" className="input" value={editingLocation.name || ''} onChange={e => setEditingLocation({...editingLocation, name: e.target.value})} />
-                      <input placeholder="Категория" className="input" value={editingLocation.category || ''} onChange={e => setEditingLocation({...editingLocation, category: e.target.value})} />
-                      <input placeholder="Prompt" className="input col-span-2" value={editingLocation.prompt || ''} onChange={e => setEditingLocation({...editingLocation, prompt: e.target.value})} />
-                      <input placeholder="Preview URL" className="input col-span-2" value={editingLocation.preview_url || ''} onChange={e => setEditingLocation({...editingLocation, preview_url: e.target.value})} />
+                      <input placeholder="Название" className="input-field" value={editingLocation.name || ''} onChange={e => setEditingLocation({...editingLocation, name: e.target.value})} />
+                      <input placeholder="Категория" className="input-field" value={editingLocation.category || ''} onChange={e => setEditingLocation({...editingLocation, category: e.target.value})} />
+                      <input placeholder="Prompt" className="input-field col-span-2" value={editingLocation.prompt || ''} onChange={e => setEditingLocation({...editingLocation, prompt: e.target.value})} />
+                      <input placeholder="Preview URL" className="input-field col-span-2" value={editingLocation.preview_url || ''} onChange={e => setEditingLocation({...editingLocation, preview_url: e.target.value})} />
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={handleSaveLocation} className="px-4 py-2 bg-green-600 rounded text-white text-sm">Сохранить</button>
-                      <button onClick={() => setEditingLocation(null)} className="px-4 py-2 bg-gray-600 rounded text-white text-sm">Отмена</button>
+                      <button onClick={handleSaveLocation} className="px-4 py-2 bg-green-600 rounded text-white text-sm hover:bg-green-700 transition-colors">Сохранить</button>
+                      <button onClick={() => setEditingLocation(null)} className="px-4 py-2 bg-gray-600 rounded text-white text-sm hover:bg-gray-700 transition-colors">Отмена</button>
                     </div>
+                  </div>
+                )}
+
+                {locations.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-gray-400">Локации не найдены</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-gray-800">
+                          <th className="pb-3 text-sm font-medium text-gray-400">Название</th>
+                          <th className="pb-3 text-sm font-medium text-gray-400">Категория</th>
+                          <th className="pb-3 text-sm font-medium text-gray-400">Статус</th>
+                          <th className="pb-3 text-sm font-medium text-gray-400">Действия</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {locations.map((location) => (
+                          <tr key={location.id} className="border-b border-gray-800/50">
+                            <td className="py-4">
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="w-10 h-10 rounded-lg bg-cover bg-center bg-gray-700"
+                                  style={{ backgroundImage: location.preview_url ? `url(${location.preview_url})` : 'none' }}
+                                />
+                                <span className="text-white font-medium">{location.name}</span>
+                              </div>
+                            </td>
+                            <td className="py-4">
+                              <span className="px-2.5 py-1 text-xs rounded-full bg-gray-800 text-gray-300">
+                                {location.category}
+                              </span>
+                            </td>
+                            <td className="py-4">
+                              <span className={`px-2.5 py-1 text-xs rounded-full ${
+                                location.is_active
+                                  ? 'bg-green-500/20 text-green-400'
+                                  : 'bg-red-500/20 text-red-400'
+                              }`}>
+                                {location.is_active ? 'Активна' : 'Неактивна'}
+                              </span>
+                            </td>
+                            <td className="py-4">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleToggleLocationActive(location)}
+                                  className="px-3 py-1.5 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+                                >
+                                  {location.is_active ? 'Деактивировать' : 'Активировать'}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteLocation(location.id)}
+                                  className="px-3 py-1.5 text-xs rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+                                >
+                                  Удалить
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
 

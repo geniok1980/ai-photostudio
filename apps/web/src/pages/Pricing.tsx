@@ -14,7 +14,18 @@ const Pricing: React.FC = () => {
   const loadPackages = async () => {
     try {
       const data = await getPackages();
-      setPackages(data);
+      // Add default features if not present
+      const enhancedPackages = data.map(pkg => ({
+        ...pkg,
+        features: pkg.features || [
+          `${pkg.generations_count === -1 ? 'Безлимитные' : pkg.generations_count} генераций`,
+          'Все локации',
+          'Высокое качество',
+          'Без водяного знака',
+          'Приоритетная обработка'
+        ]
+      }));
+      setPackages(enhancedPackages);
     } catch {
       // Fallback demo data if API not available
       setPackages([
@@ -22,36 +33,40 @@ const Pricing: React.FC = () => {
           id: '1',
           name: 'Пробный',
           price: 0,
-          generationsCount: 3,
+          generations_count: 2,
           description: 'Попробуйте AI PhotoStudio бесплатно',
-          features: ['3 генерации', '5 доступных локаций', 'Базовое качество', 'Водяной знак'],
+          is_active: true,
+          features: ['2 генерации', '5 доступных локаций', 'Базовое качество', 'Водяной знак'],
         },
         {
           id: '2',
           name: 'Стартовый',
-          price: 499,
-          generationsCount: 20,
+          price: 299,
+          generations_count: 10,
           description: 'Для occasional использования',
           isPopular: false,
-          features: ['20 генераций', 'Все локации', 'Высокое качество', 'Без водяного знака', 'Приоритетная обработка'],
+          is_active: true,
+          features: ['10 генераций', 'Все локации', 'Высокое качество', 'Без водяного знака', 'Приоритетная обработка'],
         },
         {
           id: '3',
-          name: 'Профессиональный',
-          price: 1490,
-          generationsCount: 100,
-          description: 'Для активных пользователей',
+          name: 'Оптимальный',
+          price: 599,
+          generations_count: 30,
+          description: '30 генераций — лучшая цена',
           isPopular: true,
-          features: ['100 генераций', 'Все локации', 'Максимальное качество', 'Без водяного знака', 'Приоритетная обработка', 'API доступ'],
+          is_active: true,
+          features: ['30 генераций', 'Все локации', 'Максимальное качество', 'Без водяного знака', 'Приоритетная обработка', 'API доступ'],
         },
         {
           id: '4',
-          name: 'Безлимитный',
-          price: 4990,
-          generationsCount: -1,
-          description: 'Неограниченные возможности',
+          name: 'PRO',
+          price: 1499,
+          generations_count: 100,
+          description: 'Для активных пользователей',
           isPopular: false,
-          features: ['Безлимитные генерации', 'Все локации', 'Максимальное качество', 'Без водяного знака', 'Приоритет 24/7', 'API доступ', 'Персональный менеджер'],
+          is_active: true,
+          features: ['100 генераций', 'Все локации', 'Максимальное качество', 'Без водяного знака', 'Приоритет 24/7', 'API доступ', 'Персональный менеджер'],
         },
       ]);
     } finally {
@@ -74,7 +89,7 @@ const Pricing: React.FC = () => {
 
     try {
       const res = await createPaymentLink(pkg.id);
-      window.open(res.url, '_blank');
+      window.location.href = res.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка создания платежа');
     }
@@ -154,21 +169,21 @@ const Pricing: React.FC = () => {
                 </div>
                 {pkg.price > 0 && (
                   <p className="text-sm text-gray-400 mt-1">
-                    {pkg.generationsCount === -1
+                    {pkg.generations_count === -1
                       ? '∞ генераций'
-                      : `${pkg.generationsCount} генераций`}
+                      : `${pkg.generations_count} генераций`}
                   </p>
                 )}
                 {pkg.price === 0 && (
                   <p className="text-sm text-gray-400 mt-1">
-                    {pkg.generationsCount} бесплатных генераций
+                    {pkg.generations_count} бесплатных генераций
                   </p>
                 )}
               </div>
 
               <div className="flex-1">
                 <ul className="space-y-3">
-                  {pkg.features.map((feature, i) => (
+                  {pkg.features?.map((feature, i) => (
                     <li key={i} className="flex items-start gap-2">
                       <svg className="w-5 h-5 text-purple-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

@@ -52,6 +52,8 @@ export interface User {
   email: string;
   name: string;
   role: 'user' | 'admin';
+  balance_generations: number;
+  free_attempts_used: number;
 }
 
 export function register(name: string, email: string, password: string): Promise<AuthResponse> {
@@ -68,15 +70,19 @@ export function login(email: string, password: string): Promise<AuthResponse> {
   });
 }
 
+export function getMe(): Promise<{ user: User }> {
+  return request<{ user: User }>('/auth/me');
+}
+
 // --- Locations ---
 
 export interface Location {
   id: string;
   name: string;
-  description?: string;
+  description: string;
   prompt: string;
-  preview_url?: string;
-  category?: string;
+  preview_url: string | null;
+  category: string;
   is_active: boolean;
   sort_order: number;
 }
@@ -92,14 +98,14 @@ export interface Package {
   name: string;
   price: number;
   generations_count: number;
-  description?: string;
+  description: string;
   is_active: boolean;
   isPopular?: boolean;
   features?: string[];
 }
 
 export function getPackages(): Promise<Package[]> {
-  return request<Package[]>('/packages');
+  return request<{ packages: Package[] }>('/packages').then(res => res.packages);
 }
 
 // --- Photo Generation ---
@@ -111,60 +117,78 @@ export interface GenerationRequest {
 
 export interface GenerationResult {
   id: string;
-  originalUrl: string;
-  resultUrl: string;
-  locationName: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
-  createdAt: string;
+  message?: string;
+}
+
+export interface GenerationInfo {
+  id: string;
+  original_photo_url: string;
+  result_url: string;
+  location_name: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  created_at: string;
 }
 
 export async function generatePhoto(file: File, locationId: string): Promise<GenerationResult> {
-  const token = getToken();
-
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('locationId', locationId);
-
-  const response = await fetch(`${API_BASE}/generations`, {
+  // Note: The backend expects JSON with locationId, and handle file separately or as placeholder
+  // Looking at backend generate.ts, it doesn't actually use the uploaded file yet, 
+  // it uses a placeholder. So we just send locationId for now.
+  return request<{ generation: GenerationResult }>('/generate', {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Upload failed' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
-  }
-
-  return response.json();
+    body: { locationId },
+  }).then(res => res.generation);
 }
 
 // --- History ---
 
 export interface GenerationHistoryItem {
   id: string;
-  originalUrl: string;
-  resultUrl: string;
-  locationName: string;
+  original_photo_url: string;
+  result_url: string;
+  location_name: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
-  createdAt: string;
+  created_at: string;
 }
 
 export function getGenerationHistory(): Promise<GenerationHistoryItem[]> {
-  return request<GenerationHistoryItem[]>('/generations');
+  return request<{ generations: GenerationHistoryItem[] }>('/generate/history').then(res => res.generations);
+}
+
+export function getGenerationStatus(id: string): Promise<{ generation: GenerationHistoryItem }> {
+  return request<{ generation: GenerationHistoryItem }>(`/generate/${id}`);
 }
 
 // --- Payment ---
 
-export interface PaymentLinkResponse {
-  url: string;
+export interface Payment {
+  id: string;
+  amount: number;
+  currency: string;
+  status: 'pending' | 'completed' | 'failed';
+  created_at: string;
+  paid_at: string | null;
+  package_name: string;
+  generations_count: number;
 }
 
-export function createPaymentLink(packageId: string): Promise<PaymentLinkResponse> {
-  return request<PaymentLinkResponse>('/payments/create', {
+export interface PaymentLinkResponse {
+  payment: {
+    id: string;
+    payment_url: string;
+    status: string;
+  }
+}
+
+export function createPaymentLink(packageId: string): Promise<{ url: string }> {
+  return request<PaymentLinkResponse>('/payments/create-link', {
     method: 'POST',
     body: { packageId },
-  });
+  }).then(res => ({ url: res.payment.payment_url }));
+}
+
+export function getPaymentHistory(): Promise<Payment[]> {
+  return request<{ payments: Payment[] }>('/payments/history').then(res => res.payments);
 }
 
 // --- Admin ---
