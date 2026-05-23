@@ -2,6 +2,8 @@ node_modules/
 dist/
 .env
 *.db
+*.db-shm
+*.db-wal
 uploads/
 .DS_Store
 *.log

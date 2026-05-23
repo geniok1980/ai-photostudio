@@ -18,7 +18,13 @@ export function initDb(): void {
   const database = getDb();
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf-8');
-  database.run(schema);
+  database.exec(schema);
+
+  try {
+    database.run('ALTER TABLE users ADD COLUMN is_blocked BOOLEAN DEFAULT 0');
+  } catch (e) {
+    // Column might already exist, ignore
+  }
 }
 
 export default getDb;

@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT DEFAULT 'user',
   free_attempts_used INTEGER DEFAULT 0,
   balance_generations INTEGER DEFAULT 0,
+  is_blocked BOOLEAN DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

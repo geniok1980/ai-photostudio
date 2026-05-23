@@ -152,7 +152,15 @@ process() {
 }
 
 # Main
-MODE="${1:-once}"
+# Parse mode from args
+MODE="once"
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --daemon) MODE="daemon"; shift ;;
+        --once|once) MODE="once"; shift ;;
+        *) shift ;;
+    esac
+done
 
 case "$MODE" in
     once)

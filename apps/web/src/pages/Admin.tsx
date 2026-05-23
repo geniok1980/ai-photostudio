@@ -1,16 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { getAdminDashboard, getAdminUsers, getLocations, deleteLocation, updateLocation, updateUserRole } from '../lib/api';
-import type { AdminDashboard, UserAdmin, Location } from '../lib/api';
+import { 
+  getAdminDashboard, getAdminUsers, updateUserAdmin, 
+  getAdminLocations, createLocation, updateLocation, deleteLocation,
+  getAdminPackages, createAdminPackage, updateAdminPackage,
+  getMonitoringGenerations, getMonitoringPayments, checkOpenRouterStatus
+} from '../lib/api';
+import type { AdminDashboard, AdminChartData, UserAdmin, Location, Package, GenerationLog, PaymentLog } from '../lib/api';
 
-type Tab = 'dashboard' | 'locations' | 'users';
+type Tab = 'dashboard' | 'locations' | 'users' | 'packages' | 'monitoring';
 
 const Admin: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
+  
+  // States
+  const [dashboard, setDashboard] = useState<{ stats: AdminDashboard; charts: { generations: AdminChartData[]; income: AdminChartData[] } } | null>(null);
   const [users, setUsers] = useState<UserAdmin[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [genLogs, setGenLogs] = useState<GenerationLog[]>([]);
+  const [payLogs, setPayLogs] = useState<PaymentLog[]>([]);
+  const [orStatus, setOrStatus] = useState<any>(null);
+  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Form states
+  const [editingLocation, setEditingLocation] = useState<Partial<Location> | null>(null);
+  const [editingPackage, setEditingPackage] = useState<Partial<Package> | null>(null);
 
   useEffect(() => {
     loadTabData();
@@ -28,105 +44,114 @@ const Admin: React.FC = () => {
           setUsers(await getAdminUsers());
           break;
         case 'locations':
-          setLocations(await getLocations());
+          setLocations(await getAdminLocations());
+          break;
+        case 'packages':
+          setPackages(await getAdminPackages());
+          break;
+        case 'monitoring':
+          setGenLogs(await getMonitoringGenerations());
+          setPayLogs(await getMonitoringPayments());
+          setOrStatus(await checkOpenRouterStatus());
           break;
       }
-    } catch (err) {
-      // If API not available, load demo data
-      loadDemoData();
+    } catch (err: any) {
+      setError('Ошибка загрузки данных: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadDemoData = () => {
-    if (activeTab === 'dashboard') {
-      setDashboard({
-        totalUsers: 0,
-        totalRevenue: 0,
-        totalGenerations: 0,
-        recentUsers: 0,
-      });
-    } else if (activeTab === 'users') {
-      setUsers([]);
-    } else if (activeTab === 'locations') {
-      setLocations([]);
+  // --- Locations Handlers ---
+  const handleSaveLocation = async () => {
+    try {
+      if (editingLocation?.id) {
+        const updated = await updateLocation(editingLocation.id, editingLocation);
+        setLocations(prev => prev.map(l => l.id === updated.id ? updated : l));
+      } else if (editingLocation) {
+        const created = await createLocation(editingLocation);
+        setLocations(prev => [...prev, created]);
+      }
+      setEditingLocation(null);
+    } catch (err: any) {
+      setError('Ошибка сохранения локации: ' + err.message);
     }
   };
 
-  const handleDeleteLocation = async (id: string) => {
+  const handleMoveLocation = async (id: string, dir: -1 | 1) => {
+    const idx = locations.findIndex(l => l.id === id);
+    if (idx < 0) return;
+    const targetIdx = idx + dir;
+    if (targetIdx < 0 || targetIdx >= locations.length) return;
+
+    const loc1 = locations[idx];
+    const loc2 = locations[targetIdx];
+
+    // Swap sort orders simply
+    const newLoc1Order = loc2.sort_order || targetIdx;
+    const newLoc2Order = loc1.sort_order || idx;
+
     try {
-      await deleteLocation(id);
-      setLocations((prev) => prev.filter((l) => l.id !== id));
+      await updateLocation(loc1.id, { sort_order: newLoc1Order });
+      await updateLocation(loc2.id, { sort_order: newLoc2Order });
+      loadTabData();
     } catch (err) {
-      setError('Ошибка удаления локации');
+      setError('Ошибка изменения порядка');
     }
   };
 
-  const handleToggleLocationActive = async (location: Location) => {
+  // --- Users Handlers ---
+  const handleUserBalanceChange = async (userId: string, balance: number) => {
     try {
-      const updated = await updateLocation(location.id, { isActive: !location.isActive });
-      setLocations((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
-    } catch {
-      setError('Ошибка обновления локации');
+      const updated = await updateUserAdmin(userId, { balance_generations: balance });
+      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+    } catch (err) {
+      setError('Ошибка обновления баланса');
     }
   };
 
-  const handleToggleUserRole = async (user: UserAdmin) => {
-    const newRole = user.role === 'admin' ? 'user' : 'admin';
+  const handleUserToggleBlock = async (userId: string, isBlocked: boolean) => {
     try {
-      const updated = await updateUserRole(user.id, newRole);
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
-    } catch {
-      setError('Ошибка обновления роли');
+      const updated = await updateUserAdmin(userId, { is_blocked: !isBlocked });
+      setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+    } catch (err) {
+      setError('Ошибка блокировки/разблокировки');
     }
   };
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    {
-      id: 'dashboard',
-      label: 'Дашборд',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-        </svg>
-      ),
-    },
-    {
-      id: 'locations',
-      label: 'Локации',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      ),
-    },
-    {
-      id: 'users',
-      label: 'Пользователи',
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-        </svg>
-      ),
-    },
+  // --- Packages Handlers ---
+  const handleSavePackage = async () => {
+    try {
+      if (editingPackage?.id) {
+        const updated = await updateAdminPackage(editingPackage.id, editingPackage);
+        setPackages(prev => prev.map(p => p.id === updated.id ? updated : p));
+      } else if (editingPackage) {
+        const created = await createAdminPackage(editingPackage);
+        setPackages(prev => [...prev, created]);
+      }
+      setEditingPackage(null);
+    } catch (err: any) {
+      setError('Ошибка сохранения тарифа: ' + err.message);
+    }
+  };
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'dashboard', label: 'Дашборд' },
+    { id: 'locations', label: 'Локации' },
+    { id: 'users', label: 'Пользователи' },
+    { id: 'packages', label: 'Тарифы' },
+    { id: 'monitoring', label: 'Мониторинг' },
   ];
 
   return (
     <div className="min-h-screen pt-20 pb-10 px-4">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold gradient-text">Панель администратора</h1>
-          <p className="text-gray-400 mt-1">Управление системой AI PhotoStudio</p>
+          <p className="text-gray-400 mt-1">Управление платформой</p>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-8 p-1 bg-gray-900 rounded-xl inline-flex">
+        <div className="flex gap-2 mb-8 p-1 bg-gray-900 rounded-xl inline-flex flex-wrap">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -137,7 +162,6 @@ const Admin: React.FC = () => {
                   : 'text-gray-400 hover:text-white hover:bg-gray-800'
               }`}
             >
-              {tab.icon}
               {tab.label}
             </button>
           ))}
@@ -149,7 +173,6 @@ const Admin: React.FC = () => {
           </div>
         )}
 
-        {/* Tab Content */}
         {loading ? (
           <div className="grid md:grid-cols-3 gap-6">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -158,180 +181,305 @@ const Admin: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* Dashboard Tab */}
+            {/* DASHBOARD TAB */}
             {activeTab === 'dashboard' && dashboard && (
-              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard
-                  title="Всего пользователей"
-                  value={dashboard.totalUsers}
-                  icon={
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  }
-                  color="blue"
-                />
-                <StatCard
-                  title="Выручка"
-                  value={`${dashboard.totalRevenue.toLocaleString('ru-RU')} ₽`}
-                  icon={
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  }
-                  color="green"
-                />
-                <StatCard
-                  title="Всего генераций"
-                  value={dashboard.totalGenerations}
-                  icon={
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  }
-                  color="purple"
-                />
-                <StatCard
-                  title="Новых за месяц"
-                  value={dashboard.recentUsers}
-                  icon={
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                    </svg>
-                  }
-                  color="indigo"
-                />
+              <div>
+                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  <StatCard title="Пользователи" value={dashboard.stats.totalUsers} color="blue" />
+                  <StatCard title="Доход (₽)" value={dashboard.stats.totalRevenue} color="green" />
+                  <StatCard title="Генерации" value={dashboard.stats.totalGenerations} color="purple" />
+                  <StatCard title="Новые (30д)" value={dashboard.stats.recentUsers} color="indigo" />
+                </div>
+                
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="card">
+                    <h3 className="text-lg font-bold text-white mb-4">Генерации по дням</h3>
+                    <div className="h-48 flex items-end gap-2 mt-4">
+                      {dashboard.charts.generations.map((d, i) => {
+                        const max = Math.max(...dashboard.charts.generations.map(x => x.count || 0), 1);
+                        const height = ((d.count || 0) / max) * 100;
+                        return (
+                          <div key={i} className="flex-1 bg-purple-600/50 hover:bg-purple-500 rounded-t-sm relative group" style={{ height: `${height}%` }}>
+                            <div className="opacity-0 group-hover:opacity-100 absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-800 text-xs px-2 py-1 rounded">
+                              {d.date}: {d.count}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="card">
+                    <h3 className="text-lg font-bold text-white mb-4">Доход по дням</h3>
+                    <div className="h-48 flex items-end gap-2 mt-4">
+                      {dashboard.charts.income.map((d, i) => {
+                        const max = Math.max(...dashboard.charts.income.map(x => x.total || 0), 1);
+                        const height = ((d.total || 0) / max) * 100;
+                        return (
+                          <div key={i} className="flex-1 bg-green-600/50 hover:bg-green-500 rounded-t-sm relative group" style={{ height: `${height}%` }}>
+                            <div className="opacity-0 group-hover:opacity-100 absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-800 text-xs px-2 py-1 rounded">
+                              {d.date}: {d.total} ₽
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* Locations Tab */}
+            {/* LOCATIONS TAB */}
             {activeTab === 'locations' && (
               <div className="card">
-                {locations.length === 0 ? (
-                  <div className="text-center py-12">
-                    <p className="text-gray-400">Локации не найдены</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="border-b border-gray-800">
-                          <th className="pb-3 text-sm font-medium text-gray-400">Название</th>
-                          <th className="pb-3 text-sm font-medium text-gray-400">Категория</th>
-                          <th className="pb-3 text-sm font-medium text-gray-400">Статус</th>
-                          <th className="pb-3 text-sm font-medium text-gray-400">Действия</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {locations.map((location) => (
-                          <tr key={location.id} className="border-b border-gray-800/50">
-                            <td className="py-4">
-                              <div className="flex items-center gap-3">
-                                <div
-                                  className="w-10 h-10 rounded-lg bg-cover bg-center bg-gray-700"
-                                  style={{ backgroundImage: `url(${location.imageUrl})` }}
-                                />
-                                <span className="text-white font-medium">{location.name}</span>
-                              </div>
-                            </td>
-                            <td className="py-4">
-                              <span className="px-2.5 py-1 text-xs rounded-full bg-gray-800 text-gray-300">
-                                {location.category}
-                              </span>
-                            </td>
-                            <td className="py-4">
-                              <span
-                                className={`px-2.5 py-1 text-xs rounded-full ${
-                                  location.isActive
-                                    ? 'bg-green-500/20 text-green-400'
-                                    : 'bg-red-500/20 text-red-400'
-                                }`}
-                              >
-                                {location.isActive ? 'Активна' : 'Неактивна'}
-                              </span>
-                            </td>
-                            <td className="py-4">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handleToggleLocationActive(location)}
-                                  className="px-3 py-1.5 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-                                >
-                                  {location.isActive ? 'Деактивировать' : 'Активировать'}
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteLocation(location.id)}
-                                  className="px-3 py-1.5 text-xs rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
-                                >
-                                  Удалить
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-lg font-bold text-white">Управление локациями</h3>
+                  <button onClick={() => setEditingLocation({ isActive: true, sort_order: locations.length })} className="px-4 py-2 bg-purple-600 rounded-lg text-sm text-white">
+                    + Добавить
+                  </button>
+                </div>
+
+                {editingLocation && (
+                  <div className="mb-8 p-4 bg-gray-800 rounded-lg border border-gray-700">
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <input placeholder="Название" className="input" value={editingLocation.name || ''} onChange={e => setEditingLocation({...editingLocation, name: e.target.value})} />
+                      <input placeholder="Категория" className="input" value={editingLocation.category || ''} onChange={e => setEditingLocation({...editingLocation, category: e.target.value})} />
+                      <input placeholder="Prompt" className="input col-span-2" value={editingLocation.prompt || ''} onChange={e => setEditingLocation({...editingLocation, prompt: e.target.value})} />
+                      <input placeholder="Preview URL" className="input col-span-2" value={editingLocation.preview_url || ''} onChange={e => setEditingLocation({...editingLocation, preview_url: e.target.value})} />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={handleSaveLocation} className="px-4 py-2 bg-green-600 rounded text-white text-sm">Сохранить</button>
+                      <button onClick={() => setEditingLocation(null)} className="px-4 py-2 bg-gray-600 rounded text-white text-sm">Отмена</button>
+                    </div>
                   </div>
                 )}
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-gray-800">
+                        <th className="pb-3 text-gray-400 font-medium">Сорт.</th>
+                        <th className="pb-3 text-gray-400 font-medium">Название</th>
+                        <th className="pb-3 text-gray-400 font-medium">Категория</th>
+                        <th className="pb-3 text-gray-400 font-medium">Статус</th>
+                        <th className="pb-3 text-gray-400 font-medium">Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {locations.map((loc) => (
+                        <tr key={loc.id} className="border-b border-gray-800/50">
+                          <td className="py-3 flex gap-1">
+                            <button onClick={() => handleMoveLocation(loc.id, -1)} className="text-gray-400 hover:text-white">↑</button>
+                            <button onClick={() => handleMoveLocation(loc.id, 1)} className="text-gray-400 hover:text-white">↓</button>
+                          </td>
+                          <td className="py-3">
+                            <div className="flex items-center gap-2">
+                              {loc.preview_url && <img src={loc.preview_url} className="w-8 h-8 rounded object-cover" />}
+                              <span className="text-white">{loc.name}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 text-gray-300">{loc.category}</td>
+                          <td className="py-3">
+                            <button onClick={async () => { await updateLocation(loc.id, { is_active: !loc.is_active }); loadTabData(); }} className={`px-2 py-1 rounded text-xs ${loc.is_active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {loc.is_active ? 'Вкл' : 'Выкл'}
+                            </button>
+                          </td>
+                          <td className="py-3 flex gap-2">
+                            <button onClick={() => setEditingLocation(loc)} className="text-blue-400 text-sm">Ред.</button>
+                            <button onClick={async () => { await deleteLocation(loc.id); loadTabData(); }} className="text-red-400 text-sm">Удал.</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
-            {/* Users Tab */}
+            {/* USERS TAB */}
             {activeTab === 'users' && (
               <div className="card">
-                {users.length === 0 ? (
-                  <div className="text-center py-12">
-                    <p className="text-gray-400">Пользователи не найдены</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="border-b border-gray-800">
-                          <th className="pb-3 text-sm font-medium text-gray-400">Имя</th>
-                          <th className="pb-3 text-sm font-medium text-gray-400">Email</th>
-                          <th className="pb-3 text-sm font-medium text-gray-400">Роль</th>
-                          <th className="pb-3 text-sm font-medium text-gray-400">Генерации</th>
-                          <th className="pb-3 text-sm font-medium text-gray-400">Действия</th>
+                <h3 className="text-lg font-bold text-white mb-6">Управление пользователями</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-gray-800">
+                        <th className="pb-3 text-gray-400">Email / Имя</th>
+                        <th className="pb-3 text-gray-400">Роль</th>
+                        <th className="pb-3 text-gray-400">Генерации</th>
+                        <th className="pb-3 text-gray-400">Блокировка</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map((user) => (
+                        <tr key={user.id} className="border-b border-gray-800/50">
+                          <td className="py-3">
+                            <div className="text-white">{user.email}</div>
+                            <div className="text-xs text-gray-400">{user.name}</div>
+                          </td>
+                          <td className="py-3">
+                            <span className="px-2 py-1 bg-gray-800 text-xs rounded text-gray-300">{user.role}</span>
+                          </td>
+                          <td className="py-3">
+                            <div className="flex gap-2 items-center">
+                              <input 
+                                type="number" 
+                                className="w-20 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white text-sm" 
+                                defaultValue={user.balance_generations}
+                                onBlur={(e) => handleUserBalanceChange(user.id, parseInt(e.target.value))}
+                              />
+                            </div>
+                          </td>
+                          <td className="py-3">
+                            <button 
+                              onClick={() => handleUserToggleBlock(user.id, user.is_blocked)}
+                              className={`px-3 py-1 text-xs rounded ${user.is_blocked ? 'bg-red-500/20 text-red-400' : 'bg-gray-800 text-gray-300'}`}
+                            >
+                              {user.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                            </button>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {users.map((user) => (
-                          <tr key={user.id} className="border-b border-gray-800/50">
-                            <td className="py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white text-sm font-medium">
-                                  {user.name.charAt(0).toUpperCase()}
-                                </div>
-                                <span className="text-white font-medium">{user.name}</span>
-                              </div>
-                            </td>
-                            <td className="py-4 text-gray-300">{user.email}</td>
-                            <td className="py-4">
-                              <span
-                                className={`px-2.5 py-1 text-xs rounded-full ${
-                                  user.role === 'admin'
-                                    ? 'bg-purple-500/20 text-purple-400'
-                                    : 'bg-gray-800 text-gray-300'
-                                }`}
-                              >
-                                {user.role === 'admin' ? 'Админ' : 'Пользователь'}
-                              </span>
-                            </td>
-                            <td className="py-4 text-gray-300">{user.generationsCount}</td>
-                            <td className="py-4">
-                              <button
-                                onClick={() => handleToggleUserRole(user)}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-                              >
-                                {user.role === 'admin' ? 'Сделать пользователем' : 'Сделать админом'}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* PACKAGES TAB */}
+            {activeTab === 'packages' && (
+              <div className="card">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-lg font-bold text-white">Управление тарифами</h3>
+                  <button onClick={() => setEditingPackage({ is_active: true })} className="px-4 py-2 bg-purple-600 rounded-lg text-sm text-white">
+                    + Создать тариф
+                  </button>
+                </div>
+
+                {editingPackage && (
+                  <div className="mb-8 p-4 bg-gray-800 rounded-lg border border-gray-700">
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <input placeholder="Название" className="input" value={editingPackage.name || ''} onChange={e => setEditingPackage({...editingPackage, name: e.target.value})} />
+                      <input placeholder="Описание (промо)" className="input" value={editingPackage.description || ''} onChange={e => setEditingPackage({...editingPackage, description: e.target.value})} />
+                      <input type="number" placeholder="Цена (₽)" className="input" value={editingPackage.price || ''} onChange={e => setEditingPackage({...editingPackage, price: parseInt(e.target.value)})} />
+                      <input type="number" placeholder="Кол-во генераций" className="input" value={editingPackage.generations_count || ''} onChange={e => setEditingPackage({...editingPackage, generations_count: parseInt(e.target.value)})} />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={handleSavePackage} className="px-4 py-2 bg-green-600 rounded text-white text-sm">Сохранить</button>
+                      <button onClick={() => setEditingPackage(null)} className="px-4 py-2 bg-gray-600 rounded text-white text-sm">Отмена</button>
+                    </div>
                   </div>
                 )}
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-gray-800">
+                        <th className="pb-3 text-gray-400">Название</th>
+                        <th className="pb-3 text-gray-400">Цена</th>
+                        <th className="pb-3 text-gray-400">Генерации</th>
+                        <th className="pb-3 text-gray-400">Статус</th>
+                        <th className="pb-3 text-gray-400">Действия</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {packages.map((pkg) => (
+                        <tr key={pkg.id} className="border-b border-gray-800/50">
+                          <td className="py-3 text-white">
+                            {pkg.name}
+                            {pkg.description && <div className="text-xs text-gray-400">{pkg.description}</div>}
+                          </td>
+                          <td className="py-3 text-white">{pkg.price} ₽</td>
+                          <td className="py-3 text-white">{pkg.generations_count}</td>
+                          <td className="py-3">
+                            <button onClick={async () => { await updateAdminPackage(pkg.id, { is_active: !pkg.is_active }); loadTabData(); }} className={`px-2 py-1 rounded text-xs ${pkg.is_active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {pkg.is_active ? 'Активен' : 'Архив'}
+                            </button>
+                          </td>
+                          <td className="py-3">
+                            <button onClick={() => setEditingPackage(pkg)} className="text-blue-400 text-sm">Ред.</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* MONITORING TAB */}
+            {activeTab === 'monitoring' && (
+              <div className="space-y-6">
+                <div className="card flex items-center gap-4">
+                  <h3 className="text-lg font-bold text-white">Статус OpenRouter:</h3>
+                  {orStatus?.status === 'ok' ? (
+                    <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm font-medium">Работает (Limit: {orStatus.data?.limit})</span>
+                  ) : (
+                    <span className="px-3 py-1 bg-red-500/20 text-red-400 rounded-full text-sm font-medium">Ошибка: {orStatus?.message}</span>
+                  )}
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="card">
+                    <h3 className="text-lg font-bold text-white mb-4">Логи генераций</h3>
+                    <div className="overflow-x-auto max-h-96">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-800">
+                            <th className="pb-2 text-gray-400">Время</th>
+                            <th className="pb-2 text-gray-400">Email</th>
+                            <th className="pb-2 text-gray-400">Локация</th>
+                            <th className="pb-2 text-gray-400">Статус</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {genLogs.map((log) => (
+                            <tr key={log.id} className="border-b border-gray-800/30">
+                              <td className="py-2 text-gray-400 text-xs">{new Date(log.created_at).toLocaleString()}</td>
+                              <td className="py-2 text-white">{log.user_email}</td>
+                              <td className="py-2 text-white">{log.location_name}</td>
+                              <td className="py-2">
+                                <span className={log.status === 'completed' ? 'text-green-400' : log.status === 'failed' ? 'text-red-400' : 'text-yellow-400'}>
+                                  {log.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="card">
+                    <h3 className="text-lg font-bold text-white mb-4">Логи платежей</h3>
+                    <div className="overflow-x-auto max-h-96">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-800">
+                            <th className="pb-2 text-gray-400">Время</th>
+                            <th className="pb-2 text-gray-400">Email</th>
+                            <th className="pb-2 text-gray-400">Сумма</th>
+                            <th className="pb-2 text-gray-400">Статус</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {payLogs.map((log) => (
+                            <tr key={log.id} className="border-b border-gray-800/30">
+                              <td className="py-2 text-gray-400 text-xs">{new Date(log.created_at).toLocaleString()}</td>
+                              <td className="py-2 text-white">{log.user_email}</td>
+                              <td className="py-2 text-white">{log.amount} {log.currency}</td>
+                              <td className="py-2">
+                                <span className={log.status === 'success' ? 'text-green-400' : log.status === 'failed' ? 'text-red-400' : 'text-yellow-400'}>
+                                  {log.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </>
@@ -341,30 +489,18 @@ const Admin: React.FC = () => {
   );
 };
 
-interface StatCardProps {
-  title: string;
-  value: string | number;
-  icon: React.ReactNode;
-  color: 'blue' | 'green' | 'purple' | 'indigo';
-}
-
-const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color }) => {
+const StatCard: React.FC<{ title: string; value: string | number; color: 'blue' | 'green' | 'purple' | 'indigo' }> = ({ title, value, color }) => {
   const colorMap = {
-    blue: 'from-blue-500/20 to-blue-600/10 text-blue-400',
-    green: 'from-green-500/20 to-green-600/10 text-green-400',
-    purple: 'from-purple-500/20 to-purple-600/10 text-purple-400',
-    indigo: 'from-indigo-500/20 to-indigo-600/10 text-indigo-400',
+    blue: 'border-blue-500/20 text-blue-400',
+    green: 'border-green-500/20 text-green-400',
+    purple: 'border-purple-500/20 text-purple-400',
+    indigo: 'border-indigo-500/20 text-indigo-400',
   };
 
   return (
-    <div className="card">
-      <div className="flex items-start justify-between mb-4">
-        <div className={`p-3 rounded-xl bg-gradient-to-br ${colorMap[color]}`}>
-          {icon}
-        </div>
-      </div>
-      <p className="text-2xl font-bold text-white">{value}</p>
-      <p className="text-sm text-gray-400 mt-1">{title}</p>
+    <div className={`card border ${colorMap[color]} bg-gray-900/50`}>
+      <p className="text-3xl font-bold text-white">{value}</p>
+      <p className="text-sm text-gray-400 mt-2">{title}</p>
     </div>
   );
 };

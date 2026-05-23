@@ -16,8 +16,28 @@ adminRouter.get('/dashboard', async (c) => {
     const userCount = (db.query('SELECT COUNT(*) as count FROM users').get() as any).count;
     const generationCount = (db.query('SELECT COUNT(*) as count FROM generations').get() as any).count;
     const completedGenerations = (db.query("SELECT COUNT(*) as count FROM generations WHERE status = 'completed'").get() as any).count;
-    const revenue = (db.query("SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = 'completed'").get() as any).total;
+    const revenue = (db.query("SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE status = 'success'").get() as any).total;
     const pendingPayments = (db.query("SELECT COUNT(*) as count FROM payments WHERE status = 'pending'").get() as any).count;
+
+    const recentUsers = (db.query("SELECT COUNT(*) as count FROM users WHERE created_at >= date('now', '-30 days')").get() as any).count;
+
+    // Generations by day (last 30 days)
+    const generationsByDay = db.query(`
+      SELECT date(created_at) as date, COUNT(*) as count 
+      FROM generations 
+      WHERE created_at >= date('now', '-30 days')
+      GROUP BY date(created_at)
+      ORDER BY date(created_at) ASC
+    `).all();
+
+    // Income by day (last 30 days)
+    const incomeByDay = db.query(`
+      SELECT date(created_at) as date, SUM(amount) as total 
+      FROM payments 
+      WHERE status = 'success' AND created_at >= date('now', '-30 days')
+      GROUP BY date(created_at)
+      ORDER BY date(created_at) ASC
+    `).all();
 
     return c.json({
       stats: {
@@ -26,7 +46,12 @@ adminRouter.get('/dashboard', async (c) => {
         completedGenerations,
         revenue,
         pendingPayments,
+        recentUsers,
       },
+      charts: {
+        generations: generationsByDay,
+        income: incomeByDay
+      }
     });
   } catch (err) {
     console.error('Dashboard error:', err);
@@ -279,7 +304,7 @@ adminRouter.get('/users', async (c) => {
   try {
     const db = getDb();
     const users = db.query(
-      'SELECT id, email, name, role, free_attempts_used, balance_generations, created_at FROM users ORDER BY created_at DESC'
+      'SELECT id, email, name, role, free_attempts_used, balance_generations, is_blocked, created_at FROM users ORDER BY created_at DESC'
     ).all();
     return c.json({ users });
   } catch (err) {
@@ -306,6 +331,7 @@ adminRouter.patch('/users/:id', async (c) => {
     if (body.name !== undefined) { updates.push('name = $name'); params.$name = body.name; }
     if (body.role !== undefined) { updates.push('role = $role'); params.$role = body.role; }
     if (body.balance_generations !== undefined) { updates.push('balance_generations = $balance'); params.$balance = body.balance_generations; }
+    if (body.is_blocked !== undefined) { updates.push('is_blocked = $is_blocked'); params.$is_blocked = body.is_blocked ? 1 : 0; }
 
     if (updates.length === 0) {
       return c.json({ error: 'No fields to update' }, 400);
@@ -314,12 +340,80 @@ adminRouter.patch('/users/:id', async (c) => {
     db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = $id`).run(params);
 
     const user = db.query(
-      'SELECT id, email, name, role, free_attempts_used, balance_generations, created_at FROM users WHERE id = $id'
+      'SELECT id, email, name, role, free_attempts_used, balance_generations, is_blocked, created_at FROM users WHERE id = $id'
     ).get({ $id: id });
     return c.json({ user });
   } catch (err) {
     console.error('Update user error:', err);
     return c.json({ error: 'Internal server error' }, 500);
+  }
+});
+
+// ===== MONITORING =====
+
+// GET /monitoring/generations
+adminRouter.get('/monitoring/generations', async (c) => {
+  try {
+    const db = getDb();
+    const logs = db.query(`
+      SELECT g.id, g.status, g.duration_ms, g.error_message, g.created_at, 
+             u.email as user_email, l.name as location_name
+      FROM generations g
+      LEFT JOIN users u ON g.user_id = u.id
+      LEFT JOIN locations l ON g.location_id = l.id
+      ORDER BY g.created_at DESC
+      LIMIT 100
+    `).all();
+    return c.json({ logs });
+  } catch (err) {
+    console.error('Monitoring generations error:', err);
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+});
+
+// GET /monitoring/payments
+adminRouter.get('/monitoring/payments', async (c) => {
+  try {
+    const db = getDb();
+    const logs = db.query(`
+      SELECT p.id, p.amount, p.currency, p.status, p.created_at, p.wata_transaction_id,
+             u.email as user_email, pkg.name as package_name
+      FROM payments p
+      LEFT JOIN users u ON p.user_id = u.id
+      LEFT JOIN packages pkg ON p.package_id = pkg.id
+      ORDER BY p.created_at DESC
+      LIMIT 100
+    `).all();
+    return c.json({ logs });
+  } catch (err) {
+    console.error('Monitoring payments error:', err);
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+});
+
+// GET /monitoring/openrouter
+adminRouter.get('/monitoring/openrouter', async (c) => {
+  try {
+    const openrouterKey = process.env.OPENROUTER_API_KEY;
+    if (!openrouterKey) {
+      return c.json({ status: 'error', message: 'OPENROUTER_API_KEY not configured' }, 200);
+    }
+    
+    // Simple ping to check balance or models (auth limit check)
+    const response = await fetch('https://openrouter.ai/api/v1/auth/key', {
+      headers: {
+        'Authorization': `Bearer ${openrouterKey}`
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return c.json({ status: 'ok', data: data.data });
+    } else {
+      return c.json({ status: 'error', message: `OpenRouter returned ${response.status}` }, 200);
+    }
+  } catch (err) {
+    return c.json({ status: 'error', message: 'Failed to connect to OpenRouter' }, 200);
   }
 });
 

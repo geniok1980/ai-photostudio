@@ -73,10 +73,12 @@ export function login(email: string, password: string): Promise<AuthResponse> {
 export interface Location {
   id: string;
   name: string;
-  description: string;
-  imageUrl: string;
-  category: string;
-  isActive: boolean;
+  description?: string;
+  prompt: string;
+  preview_url?: string;
+  category?: string;
+  is_active: boolean;
+  sort_order: number;
 }
 
 export function getLocations(): Promise<Location[]> {
@@ -89,10 +91,11 @@ export interface Package {
   id: string;
   name: string;
   price: number;
-  generationsCount: number;
-  description: string;
+  generations_count: number;
+  description?: string;
+  is_active: boolean;
   isPopular?: boolean;
-  features: string[];
+  features?: string[];
 }
 
 export function getPackages(): Promise<Package[]> {
@@ -173,46 +176,127 @@ export interface AdminDashboard {
   recentUsers: number;
 }
 
+export interface AdminChartData {
+  date: string;
+  count?: number;
+  total?: number;
+}
+
 export interface UserAdmin {
   id: string;
   email: string;
   name: string;
   role: 'user' | 'admin';
-  createdAt: string;
-  generationsCount: number;
+  created_at: string;
+  balance_generations: number;
+  is_blocked: boolean;
 }
 
-export function getAdminDashboard(): Promise<AdminDashboard> {
-  return request<AdminDashboard>('/admin/dashboard');
+export interface GenerationLog {
+  id: string;
+  status: string;
+  duration_ms: number;
+  error_message: string;
+  created_at: string;
+  user_email: string;
+  location_name: string;
 }
 
-export function getAdminUsers(): Promise<UserAdmin[]> {
-  return request<UserAdmin[]>('/admin/users');
+export interface PaymentLog {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  created_at: string;
+  wata_transaction_id: string;
+  user_email: string;
+  package_name: string;
 }
 
-export function updateUserRole(userId: string, role: 'user' | 'admin'): Promise<UserAdmin> {
-  return request<UserAdmin>(`/admin/users/${userId}`, {
+export async function getAdminDashboard(): Promise<{ stats: AdminDashboard; charts: { generations: AdminChartData[]; income: AdminChartData[] } }> {
+  const data = await request<any>('/admin/dashboard');
+  return {
+    stats: {
+      totalUsers: data.stats.userCount,
+      totalRevenue: data.stats.revenue,
+      totalGenerations: data.stats.generationCount,
+      recentUsers: data.stats.recentUsers,
+    },
+    charts: data.charts,
+  };
+}
+
+export async function getAdminUsers(): Promise<UserAdmin[]> {
+  const data = await request<{users: UserAdmin[]}>('/admin/users');
+  return data.users;
+}
+
+export async function updateUserAdmin(userId: string, updates: Partial<UserAdmin>): Promise<UserAdmin> {
+  const data = await request<{user: UserAdmin}>(`/admin/users/${userId}`, {
     method: 'PATCH',
-    body: { role },
+    body: updates,
   });
+  return data.user;
 }
 
-export function createLocation(data: Omit<Location, 'id'>): Promise<Location> {
-  return request<Location>('/locations', {
+export async function getAdminLocations(): Promise<Location[]> {
+  const data = await request<{locations: Location[]}>('/admin/locations');
+  return data.locations;
+}
+
+export async function createLocation(data: Partial<Location>): Promise<Location> {
+  const res = await request<{location: Location}>('/admin/locations', {
     method: 'POST',
     body: data,
   });
+  return res.location;
 }
 
-export function updateLocation(id: string, data: Partial<Location>): Promise<Location> {
-  return request<Location>(`/locations/${id}`, {
-    method: 'PATCH',
+export async function updateLocation(id: string, data: Partial<Location>): Promise<Location> {
+  const res = await request<{location: Location}>(`/admin/locations/${id}`, {
+    method: 'PUT',
     body: data,
   });
+  return res.location;
 }
 
-export function deleteLocation(id: string): Promise<void> {
-  return request<void>(`/locations/${id}`, {
+export async function deleteLocation(id: string): Promise<void> {
+  await request<void>(`/admin/locations/${id}`, {
     method: 'DELETE',
   });
+}
+
+export async function getAdminPackages(): Promise<Package[]> {
+  const data = await request<{packages: Package[]}>('/admin/packages');
+  return data.packages;
+}
+
+export async function createAdminPackage(data: Partial<Package>): Promise<Package> {
+  const res = await request<{package: Package}>('/admin/packages', {
+    method: 'POST',
+    body: data,
+  });
+  return res.package;
+}
+
+export async function updateAdminPackage(id: string, data: Partial<Package>): Promise<Package> {
+  const res = await request<{package: Package}>(`/admin/packages/${id}`, {
+    method: 'PUT',
+    body: data,
+  });
+  return res.package;
+}
+
+export async function getMonitoringGenerations(): Promise<GenerationLog[]> {
+  const data = await request<{logs: GenerationLog[]}>('/admin/monitoring/generations');
+  return data.logs;
+}
+
+export async function getMonitoringPayments(): Promise<PaymentLog[]> {
+  const data = await request<{logs: PaymentLog[]}>('/admin/monitoring/payments');
+  return data.logs;
+}
+
+export async function checkOpenRouterStatus(): Promise<any> {
+  return request<any>('/admin/monitoring/openrouter');
 }
