@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-set -e
+# agent-daemon.sh - Обработчик GitHub Issues через Gemini CLI
+# Usage: ./agent-daemon.sh [--once|--daemon]
 
 REPO="geniok1980/ai-photostudio"
 BRANCH="main"
-POLL_INTERVAL=${POLL_INTERVAL:-60}
 WORK_DIR="/root/ai-photostudio"
+GEMINI_BIN="/root/.hermes/node/bin/gemini"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 error() { echo "[$(date '+%H:%M:%S')] ERROR: $*" >&2; }
@@ -14,13 +15,14 @@ get_token() {
 }
 
 get_issues() {
-    local filter="$1"
     local token=$(get_token)
-    local filter_query=""
-    [ "$filter" = "gemini" ] && filter_query="&labels=gemini"
+    if [ -z "$token" ]; then
+        error "Failed to get GitHub token"
+        return 1
+    fi
     curl -s -H "Authorization: token $token" \
-        "https://api.github.com/repos/$REPO/issues?state=open&labels=agent-ready$filter_query" | \
-        jq -r '.[] | "\(.number)|\(.title)"'
+        "https://api.github.com/repos/$REPO/issues?state=open&labels=agent-ready,gemini&per_page=10" 2>/dev/null | \
+        jq -r 'if type=="array" then .[] | "\(.number)|\(.title)" else empty end' 2>/dev/null || true
 }
 
 claim_issue() {
@@ -29,7 +31,7 @@ claim_issue() {
     curl -s -X PATCH -H "Authorization: token $token" \
         -H "Content-Type: application/json" \
         "https://api.github.com/repos/$REPO/issues/$num" \
-        -d '{"labels":["in-progress","agent-ready","gemini"],"assignees":["github-actions[bot]"]}' >/dev/null 2>&1
+        -d '{"labels":["in-progress","agent-ready","gemini"]}' >/dev/null 2>&1
     log "Issue #$num: claimed"
 }
 
@@ -40,80 +42,113 @@ close_issue() {
         -H "Content-Type: application/json" \
         "https://api.github.com/repos/$REPO/issues/$num" \
         -d '{"state":"closed","labels":["completed"]}' >/dev/null 2>&1
-    log "Issue #$num: closed"
+    log "Issue #$num: closed! ✅"
+}
+
+get_issue_body() {
+    local num=$1
+    local token=$(get_token)
+    curl -s -H "Authorization: token $token" \
+        "https://api.github.com/repos/$REPO/issues/$num" 2>/dev/null | \
+        jq -r '.body // "No description"' 2>/dev/null || echo "No description"
 }
 
 run_gemini() {
     local num=$1 title=$2
-    log "🤖 Gemini CLI: Issue #$num — $title"
+    log "🤖 Gemini CLI: Starting Issue #$num — $title"
+    
+    # Read the actual issue body
+    local body=$(get_issue_body "$num")
+    log "Issue body length: ${#body} chars"
     
     cd "$WORK_DIR"
     local branch="agent/$num-task"
     
-    # git setup
-    git checkout -b "$branch" 2>/dev/null || git checkout "$branch"
+    # Reset to main and create branch
+    git fetch origin 2>/dev/null || true
+    git checkout "$BRANCH" 2>/dev/null || true
+    git pull origin "$BRANCH" 2>/dev/null || true
+    git branch -D "$branch" 2>/dev/null || true
+    git checkout -b "$branch"
     
-    local prompt="Read and implement GitHub Issue #$num from $REPO.
+    log "Created branch: $branch"
+    
+    local prompt="Task: Implement GitHub Issue #$num from $REPO.
+
 Title: $title
 
-Full issue: https://github.com/$REPO/issues/$num
+Issue description:
+$body
 
-Important: This is a Bun + TypeScript monorepo.
-- Backend: apps/api/ (Hono.js)
-- Frontend: apps/web/ (React + Vite + Tailwind)
-- Package manager: bun
-- No Python, no GPU needed
+Project location: /root/ai-photostudio
+This is a Bun + TypeScript monorepo with Turborepo.
+- Backend: apps/api/ (Hono.js + Bun, SQLite)
+- Frontend: apps/web/ (React + Vite + Tailwind, dark theme)
+- Package manager: bun (NOT npm!)
+- All existing source code is in /root/ai-photostudio
 
-Steps:
-1. Read the issue description to understand the task
-2. Check existing code in /root/ai-photostudio
-3. Make changes that implement the task
-4. Verify: run 'bun run build' in apps/web and 'bun build src/index.ts --no-bundle' in apps/api
-5. If all good: git add -A && git commit -m 'feat: implement issue #$num'
-6. git push -u origin $branch 2>&1
-7. Create a PR: go to https://github.com/$REPO/pull/new/$branch and verify changes were pushed"
+Instructions:
+1. Read the issue description above carefully
+2. Explore the existing code in /root/ai-photostudio
+3. Implement all the tasks listed in the issue
+4. After changes, verify: 'cd apps/api && bun build src/index.ts --no-bundle'
+5. Also verify: 'cd apps/web && bun run build'
+6. If build succeeds: git add -A && git commit -m 'feat: implement issue #$num'
+7. git push -u origin $branch"
 
-    log "Running Gemini for Issue #$num..."
-    timeout 300 /root/.hermes/node/bin/gemini -p "$prompt" --approval-mode yolo --skip-trust > /tmp/gemini-ai-$num.log 2>&1
+    log "Running Gemini CLI (timeout: 5 min)..."
+    timeout 300 $GEMINI_BIN -p "$prompt" --approval-mode yolo --skip-trust > /tmp/gemini-ai-$num.log 2>&1
     local exit_code=$?
     
-    if [ $exit_code -eq 124 ]; then
-        log "Gemini timed out for Issue #$num"
-    elif [ $exit_code -ne 0 ]; then
-        log "Gemini failed for Issue #$num (exit $exit_code)"
-    fi
+    log "Gemini finished with exit code: $exit_code"
     
-    # Try to push any changes
+    # Push any changes
     cd "$WORK_DIR"
     if ! git diff --quiet HEAD 2>/dev/null; then
-        log "Pushing changes..."
+        log "Changes detected! Pushing..."
         git add -A
         git commit -m "feat: implement issue #$num" 2>/dev/null || true
-        git push -u origin "$branch" 2>&1 || log "Push failed (maybe no changes)"
+        git push -u origin "$branch" 2>&1 | tail -5
+        log "✅ Pushed to: $branch"
     else
         log "No changes from Gemini"
-        git checkout main 2>/dev/null || true
+        git checkout "$BRANCH" 2>/dev/null || true
+    fi
+    
+    # Print last lines of the log
+    if [ -f /tmp/gemini-ai-$num.log ]; then
+        log "=== Last 10 lines of Gemini log ==="
+        tail -10 /tmp/gemini-ai-$num.log 2>/dev/null
+        log "=== End of log ==="
     fi
 }
 
 process() {
-    log "Checking for tasks in $REPO..."
-    local issues=$(get_issues "gemini")
+    log "=== Checking for tasks in $REPO ==="
+    local issues=$(get_issues)
     
     if [ -z "$issues" ]; then
-        log "No pending tasks"
+        log "No pending tasks found (no issues with labels: agent-ready, gemini)"
         return
     fi
     
-    while IFS='|' read -r num title; do
+    log "Found issues:"
+    echo "$issues" | while IFS='|' read -r num title; do
         [ -z "$num" ] && continue
+        log "  #$num: $title"
+    done
+    
+    echo "$issues" | while IFS='|' read -r num title; do
+        [ -z "$num" ] && continue
+        log "=============================="
         log "Processing Issue #$num: $title"
+        log "=============================="
         claim_issue "$num"
         run_gemini "$num" "$title"
         close_issue "$num"
-    done <<< "$issues"
+    done
     
-    log "Cycle done"
+    log "=== All tasks completed ==="
 }
 
 # Main
@@ -127,7 +162,8 @@ case "$MODE" in
         log "Running daemon for $REPO (Ctrl+C to stop)"
         while true; do
             process
-            sleep "$POLL_INTERVAL"
+            log "Sleeping 60s..."
+            sleep 60
         done
         ;;
 esac
