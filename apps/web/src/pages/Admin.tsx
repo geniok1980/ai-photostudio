@@ -229,7 +229,7 @@ const Admin: React.FC = () => {
                               <div className="flex items-center gap-3">
                                 <div
                                   className="w-10 h-10 rounded-lg bg-cover bg-center bg-gray-700"
-                                  style={{ backgroundImage: `url(${location.imageUrl})` }}
+                                  style={{ backgroundImage: location.preview_url ? `url(${location.preview_url})` : 'none' }}
                                 />
                                 <span className="text-white font-medium">{location.name}</span>
                               </div>
