@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { cors } from 'hono/cors';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { initDb } from './db/index';
 import authRouter from './routes/auth';
 import locationsRouter from './routes/locations';
@@ -22,6 +23,9 @@ app.use('/api/*', cors({
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true,
 }));
+
+// Serve uploaded files
+app.use('/uploads/*', serveStatic({ root: './' }));
 
 // Health check
 app.get('/', (c) => c.json({ status: 'ok', message: 'AI PhotoStudio API' }));

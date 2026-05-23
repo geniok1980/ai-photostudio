@@ -122,7 +122,7 @@ export async function generatePhoto(file: File, locationId: string): Promise<Gen
   formData.append('file', file);
   formData.append('locationId', locationId);
 
-  const response = await fetch(`${API_BASE}/generations`, {
+  const response = await fetch(`${API_BASE}/generate`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
@@ -133,7 +133,8 @@ export async function generatePhoto(file: File, locationId: string): Promise<Gen
     throw new Error(error.message || `HTTP ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  return data.generation;
 }
 
 // --- History ---
@@ -147,8 +148,9 @@ export interface GenerationHistoryItem {
   createdAt: string;
 }
 
-export function getGenerationHistory(): Promise<GenerationHistoryItem[]> {
-  return request<GenerationHistoryItem[]>('/generations');
+export async function getGenerationHistory(): Promise<GenerationHistoryItem[]> {
+  const data = await request<{ generations: GenerationHistoryItem[] }>('/generate/history');
+  return data.generations;
 }
 
 // --- Payment ---

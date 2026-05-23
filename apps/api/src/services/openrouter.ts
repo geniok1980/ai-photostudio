@@ -1,5 +1,6 @@
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'google/gemini-2.5-flash-image-preview';
+const PRIMARY_MODEL = 'google/gemini-2.5-flash-image-preview';
+const FALLBACK_MODEL = 'anthropic/claude-3-opus:beta'; // Just an example, maybe better a vision model like 'google/gemini-pro-vision'
 
 export interface GeneratePhotoResponse {
   imageUrl: string;
@@ -17,7 +18,22 @@ export async function generatePhoto(
   }
 
   const startTime = Date.now();
+  
+  try {
+    return await callOpenRouter(PRIMARY_MODEL, photoBase64, prompt, apiKey, startTime);
+  } catch (err) {
+    console.error(`Primary model (${PRIMARY_MODEL}) failed, trying fallback:`, err);
+    return await callOpenRouter(FALLBACK_MODEL, photoBase64, prompt, apiKey, startTime);
+  }
+}
 
+async function callOpenRouter(
+  model: string,
+  photoBase64: string,
+  prompt: string,
+  apiKey: string,
+  startTime: number
+): Promise<GeneratePhotoResponse> {
   const response = await fetch(OPENROUTER_ENDPOINT, {
     method: 'POST',
     headers: {
@@ -27,7 +43,7 @@ export async function generatePhoto(
       'X-Title': 'AI PhotoStudio',
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: model,
       messages: [
         {
           role: 'user',
@@ -58,11 +74,13 @@ export async function generatePhoto(
   const data = await response.json() as any;
 
   // Extract the image URL from the response
-  // OpenRouter returns content parts, one of which may be an image
   let imageUrl: string | null = null;
 
   if (data.choices?.[0]?.message?.content) {
     const content = data.choices[0].message.content;
+    
+    // Some models return a string with Markdown image or just URL
+    // Some models return content parts
     if (Array.isArray(content)) {
       for (const part of content) {
         if (part.type === 'image_url' && part.image_url?.url) {
@@ -70,11 +88,17 @@ export async function generatePhoto(
           break;
         }
       }
+    } else if (typeof content === 'string') {
+      // Basic regex to find URL in string
+      const urlMatch = content.match(/https?:\/\/[^\s)]+/);
+      if (urlMatch) {
+        imageUrl = urlMatch[0];
+      }
     }
   }
 
   if (!imageUrl) {
-    throw new Error('No image URL found in OpenRouter response');
+    throw new Error(`No image URL found in OpenRouter response from model ${model}`);
   }
 
   return { imageUrl, durationMs };

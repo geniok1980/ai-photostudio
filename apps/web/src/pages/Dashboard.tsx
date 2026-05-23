@@ -63,14 +63,57 @@ const Dashboard: React.FC = () => {
     setResult(null);
 
     try {
-      const res = await generatePhoto(selectedFile, selectedLocation);
-      setResult(res);
-      loadHistory();
+      const initialRes = await generatePhoto(selectedFile, selectedLocation);
+      setResult(initialRes);
+      
+      // Start polling
+      pollStatus(initialRes.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка генерации');
-    } finally {
       setGenerating(false);
     }
+  };
+
+  const pollStatus = async (id: string) => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`http://localhost:3001/api/generate/${id}`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('jwt')}`,
+          },
+        });
+        
+        if (!response.ok) throw new Error('Failed to fetch status');
+        
+        const data = await response.json();
+        const generation = data.generation;
+        
+        setResult(generation);
+        
+        if (generation.status === 'completed' || generation.status === 'failed') {
+          clearInterval(interval);
+          setGenerating(false);
+          loadHistory();
+          
+          if (generation.status === 'failed') {
+            setError(generation.errorMessage || 'Ошибка генерации');
+          }
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+        clearInterval(interval);
+        setGenerating(false);
+      }
+    }, 2000);
+  };
+
+  const handleDownload = (url: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `generated-photo-${Date.now()}.jpg`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -105,7 +148,7 @@ const Dashboard: React.FC = () => {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  Генерация...
+                  {result?.status === 'processing' ? 'Обработка...' : 'Генерация...'}
                 </span>
               ) : (
                 'Сгенерировать'
@@ -121,26 +164,58 @@ const Dashboard: React.FC = () => {
             {/* Result */}
             {result && (
               <div className="card">
-                <h2 className="text-lg font-semibold text-white mb-4">Результат</h2>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1.5">Оригинал</p>
-                    <div
-                      className="aspect-square rounded-xl bg-cover bg-center bg-gray-800"
-                      style={{ backgroundImage: `url(${result.originalUrl})` }}
-                    />
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400 mb-1.5">Результат</p>
-                    <div
-                      className="aspect-square rounded-xl bg-cover bg-center bg-gray-800"
-                      style={{ backgroundImage: `url(${result.resultUrl})` }}
-                    />
-                  </div>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-semibold text-white">Результат</h2>
+                  {result.status === 'completed' && (
+                    <button
+                      onClick={() => handleDownload(result.resultUrl)}
+                      className="text-purple-400 hover:text-purple-300 text-sm font-medium flex items-center gap-1"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      Скачать
+                    </button>
+                  )}
                 </div>
-                <p className="text-xs text-gray-500 mt-3 text-center">
-                  Локация: {result.locationName}
-                </p>
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1.5">Оригинал</p>
+                      <div
+                        className="aspect-[3/4] rounded-xl bg-cover bg-center bg-gray-800 border border-gray-700"
+                        style={{ backgroundImage: `url(${result.originalUrl.startsWith('/') ? `http://localhost:3001${result.originalUrl}` : result.originalUrl})` }}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1.5">Результат</p>
+                      {result.status === 'completed' ? (
+                        <div
+                          className="aspect-[3/4] rounded-xl bg-cover bg-center bg-gray-800 border border-purple-500/30 animate-in fade-in duration-700"
+                          style={{ backgroundImage: `url(${result.resultUrl})` }}
+                        />
+                      ) : result.status === 'failed' ? (
+                        <div className="aspect-[3/4] rounded-xl bg-gray-900 border border-red-500/20 flex items-center justify-center p-4 text-center">
+                          <p className="text-xs text-red-400">Ошибка генерации</p>
+                        </div>
+                      ) : (
+                        <div className="aspect-[3/4] rounded-xl bg-gray-900 border border-gray-700 flex flex-col items-center justify-center p-4 text-center gap-3">
+                          <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                          <p className="text-xs text-gray-500">Создаем шедевр...</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {result.status === 'completed' && (
+                    <div className="p-3 rounded-lg bg-purple-500/5 border border-purple-500/10">
+                      <p className="text-xs text-gray-400 text-center">
+                        Локация: <span className="text-purple-300">{result.locationName}</span>
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

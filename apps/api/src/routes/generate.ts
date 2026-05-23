@@ -4,20 +4,48 @@ import { getDb } from '../db/index';
 import { authMiddleware } from '../middleware/auth';
 import type { JwtPayload } from '../services/auth';
 import { generatePhoto } from '../services/openrouter';
+import { join } from 'path';
+import { writeFile, mkdir } from 'fs/promises';
 
 const generateRouter = new Hono();
 
+// Simple in-memory rate limiter
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 5;
+
+const rateLimitMiddleware = async (c: any, next: any) => {
+  const user = c.get('user') as JwtPayload;
+  const now = Date.now();
+  const userLimit = rateLimitMap.get(user.id);
+
+  if (!userLimit || now > userLimit.resetTime) {
+    rateLimitMap.set(user.id, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+  } else {
+    if (userLimit.count >= MAX_REQUESTS_PER_WINDOW) {
+      return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+    }
+    userLimit.count++;
+  }
+  await next();
+};
+
 // All routes require auth
 generateRouter.use('/*', authMiddleware());
+generateRouter.use('/', rateLimitMiddleware);
 
 // POST / - create a generation
 generateRouter.post('/', async (c) => {
   try {
     const user = c.get('user') as JwtPayload;
-    const { locationId } = await c.req.json();
+    
+    // Parse multipart form data
+    const body = await c.req.parseBody();
+    const file = body['file'] as File | undefined;
+    const locationId = body['locationId'] as string | undefined;
 
-    if (!locationId) {
-      return c.json({ error: 'locationId is required' }, 400);
+    if (!file || !locationId) {
+      return c.json({ error: 'file and locationId are required' }, 400);
     }
 
     const db = getDb();
@@ -41,7 +69,6 @@ generateRouter.post('/', async (c) => {
     }
 
     // Check balance
-    // Free users get 2 free attempts; paying users use their balance
     const isFreeUser = userData.role === 'user' && userData.balance_generations <= 0;
     const freeLimit = 2;
 
@@ -49,10 +76,25 @@ generateRouter.post('/', async (c) => {
       return c.json({ error: 'Free attempts exhausted. Please purchase a package.' }, 403);
     }
 
-    // Create the generation record
+    // Save the uploaded file
     const generationId = uuidv4();
-    const placeholderPhotoUrl = `https://placehold.co/600x800/png?text=${encodeURIComponent('User Photo')}`;
+    const uploadsDir = join(process.cwd(), 'uploads');
+    
+    // Ensure directory exists
+    await mkdir(uploadsDir, { recursive: true });
+    
+    const fileExtension = file.name.split('.').pop() || 'jpg';
+    const fileName = `${generationId}-original.${fileExtension}`;
+    const filePath = join(uploadsDir, fileName);
+    
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    await writeFile(filePath, buffer);
+    
+    const originalPhotoUrl = `/uploads/${fileName}`;
+    const photoBase64 = buffer.toString('base64');
 
+    // Create the generation record
     db.prepare(
       `INSERT INTO generations (id, user_id, location_id, original_photo_url, status)
        VALUES ($id, $user_id, $location_id, $original_photo_url, 'processing')`
@@ -60,11 +102,11 @@ generateRouter.post('/', async (c) => {
       $id: generationId,
       $user_id: user.id,
       $location_id: locationId,
-      $original_photo_url: placeholderPhotoUrl,
+      $original_photo_url: originalPhotoUrl,
     });
 
-    // Start generation in the background (don't await)
-    generateAndSave(generationId, location.prompt, user.id, isFreeUser)
+    // Start generation in the background
+    generateAndSave(generationId, location.prompt, user.id, isFreeUser, photoBase64)
       .catch((err) => console.error(`Generation ${generationId} failed:`, err));
 
     return c.json({
@@ -72,6 +114,7 @@ generateRouter.post('/', async (c) => {
         id: generationId,
         status: 'processing',
         message: 'Photo generation started',
+        originalUrl: originalPhotoUrl,
       },
     }, 202);
   } catch (err) {
@@ -87,9 +130,9 @@ generateRouter.get('/history', async (c) => {
     const db = getDb();
 
     const generations = db.query(
-      `SELECT g.id, g.location_id, l.name as location_name, g.original_photo_url,
-              g.result_url, g.thumbnail_url, g.status, g.error_message, g.duration_ms,
-              g.created_at, g.completed_at
+      `SELECT g.id, g.location_id, l.name as location_name, g.original_photo_url as originalUrl,
+              g.result_url as resultUrl, g.thumbnail_url as thumbnailUrl, g.status, g.error_message as errorMessage,
+              g.duration_ms as durationMs, g.created_at as createdAt, g.completed_at as completedAt
        FROM generations g
        LEFT JOIN locations l ON g.location_id = l.id
        WHERE g.user_id = $user_id
@@ -113,8 +156,9 @@ generateRouter.get('/:id', async (c) => {
 
     const generation = db.query(
       `SELECT g.id, g.location_id, l.name as location_name, l.prompt as location_prompt,
-              g.original_photo_url, g.result_url, g.thumbnail_url, g.status,
-              g.error_message, g.duration_ms, g.created_at, g.completed_at
+              g.original_photo_url as originalUrl, g.result_url as resultUrl, g.thumbnail_url as thumbnailUrl,
+              g.status, g.error_message as errorMessage, g.duration_ms as durationMs,
+              g.created_at as createdAt, g.completed_at as completedAt
        FROM generations g
        LEFT JOIN locations l ON g.location_id = l.id
        WHERE g.id = $id AND g.user_id = $user_id`
@@ -136,16 +180,13 @@ async function generateAndSave(
   generationId: string,
   prompt: string,
   userId: string,
-  isFreeUser: boolean
+  isFreeUser: boolean,
+  photoBase64: string
 ): Promise<void> {
   const db = getDb();
 
   try {
-    // Use a placeholder photo (base64 encoded 1x1 transparent pixel)
-    const placeholderBase64 =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-
-    const result = await generatePhoto(placeholderBase64, prompt);
+    const result = await generatePhoto(photoBase64, prompt);
 
     // Update generation record
     db.prepare(
