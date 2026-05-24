@@ -23,7 +23,7 @@ export async function generatePhoto(
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
-      'HTTP-Referer': process.env.APP_URL || 'http://localhost:3007',
+      'HTTP-Referer': process.env.APP_URL || 'https://github.com/geniok1980/ai-photostudio',
       'X-Title': 'AI PhotoStudio',
     },
     body: JSON.stringify({

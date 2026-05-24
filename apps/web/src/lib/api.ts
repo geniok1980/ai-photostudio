@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3007/api';
+const API_BASE = '/api';
 
 interface RequestOptions {
   method?: string;

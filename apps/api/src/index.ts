@@ -17,7 +17,7 @@ const app = new Hono();
 
 // CORS for frontend
 app.use('/api/*', cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3007',
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   allowHeaders: ['Content-Type', 'Authorization'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true,
@@ -43,7 +43,7 @@ app.onError((err, c) => {
   return c.json({ error: 'Internal Server Error' }, 500);
 });
 
-const port = parseInt(process.env.PORT || '3007', 10);
+const port = parseInt(process.env.PORT || '3001', 10);
 
 console.log(`API server running on http://localhost:${port}`);
 
