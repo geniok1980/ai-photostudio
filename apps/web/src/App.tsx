@@ -6,6 +6,7 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
+import ProductDashboard from './pages/ProductDashboard';
 import History from './pages/History';
 import Pricing from './pages/Pricing';
 import Admin from './pages/Admin';
@@ -55,6 +56,15 @@ const App: React.FC = () => {
               <AuthGuard>
                 <Navbar />
                 <History />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/app/product"
+            element={
+              <AuthGuard>
+                <Navbar />
+                <ProductDashboard />
               </AuthGuard>
             }
           />

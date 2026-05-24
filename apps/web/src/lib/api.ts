@@ -53,6 +53,7 @@ export interface User {
   name: string;
   role: 'user' | 'admin';
   balance_generations: number;
+  spark_balance: number;
   free_attempts_used: number;
 }
 
@@ -108,11 +109,53 @@ export function getPackages(): Promise<Package[]> {
   return request<{ packages: Package[] }>('/packages').then(res => res.packages);
 }
 
+// --- Product Generation (Mode) ---
+
+export interface Mode {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  icon: string;
+}
+
+export interface Concept {
+  id: string;
+  mode_id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  prompt_template: string;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  display_name: string;
+  icon: string;
+}
+
+export function getModes(): Promise<Mode[]> {
+  return request<{ modes: Mode[] }>('/modes').then(res => res.modes);
+}
+
+export function getConcepts(modeId?: string): Promise<Concept[]> {
+  const query = modeId ? `?mode_id=${modeId}` : '';
+  return request<{ concepts: Concept[] }>(`/concepts${query}`).then(res => res.concepts);
+}
+
+export function getCategories(): Promise<Category[]> {
+  return request<{ categories: Category[] }>('/categories').then(res => res.categories);
+}
+
 // --- Photo Generation ---
 
 export interface GenerationRequest {
-  file: File;
-  locationId: string;
+  modeId?: string;
+  locationId?: string | null;
+  conceptId?: string;
+  categoryId?: string;
+  productDescription?: string;
 }
 
 export interface GenerationResult {
@@ -130,14 +173,22 @@ export interface GenerationInfo {
   created_at: string;
 }
 
-export async function generatePhoto(file: File, locationId: string): Promise<GenerationResult> {
-  // Note: The backend expects JSON with locationId, and handle file separately or as placeholder
-  // Looking at backend generate.ts, it doesn't actually use the uploaded file yet, 
-  // it uses a placeholder. So we just send locationId for now.
+export async function generatePhoto(file: File, options?: GenerationRequest): Promise<GenerationResult> {
   return request<{ generation: GenerationResult }>('/generate', {
     method: 'POST',
-    body: { locationId },
+    body: {
+      locationId: options?.locationId ?? (options?.modeId === 'product' ? null : undefined),
+      modeId: options?.modeId,
+      conceptId: options?.conceptId,
+      categoryId: options?.categoryId,
+      productDescription: options?.productDescription,
+    },
   }).then(res => res.generation);
+}
+
+// Keep the old signature for backwards compatibility
+export async function generatePhotoLegacy(file: File, locationId: string): Promise<GenerationResult> {
+  return generatePhoto(file, { modeId: 'portrait' });
 }
 
 // --- History ---
