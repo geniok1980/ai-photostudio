@@ -1,0 +1,74 @@
+name: Gemini Agent
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issues' && 
+      (github.event.action == 'opened' || github.event.action == 'labeled') &&
+      contains(github.event.issue.labels.*.name, 'agent-ready') &&
+      contains(github.event.issue.labels.*.name, 'gemini')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      
+      - name: Setup Git
+        run: |
+          git config user.name "Gemini Agent"
+          git config user.email "gemini-agent[bot]@users.noreply.github.com"
+      
+      - name: Install dependencies
+        run: bun install
+      
+      - name: Run Gemini CLI
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          ISSUE_NUM="${{ github.event.issue.number }}"
+          ISSUE_TITLE="${{ github.event.issue.title }}"
+          BRANCH="agent/${ISSUE_NUM}-task"
+          
+          git checkout -b "$BRANCH"
+          
+          # Extract issue body to a file for Gemini
+          cat << 'ISSUE_EOF' > /tmp/issue_context.md
+          Issue #${{ github.event.issue.number }}: ${{ github.event.issue.title }}
+          
+          ${{ github.event.issue.body }}
+          ISSUE_EOF
+          
+          # Run Gemini with the issue context
+          gemini "Implement GitHub Issue #${ISSUE_NUM}: ${ISSUE_TITLE}
+          
+          Read /tmp/issue_context.md for full requirements.
+          
+          1. Read existing codebase structure
+          2. Review TZ-AIDENTIKA-FEATURES.md in repo root
+          3. Implement all Phase 1 features first
+          4. Run: bun run build --filter=@ai-photostudio/api (must pass)
+          5. Run: bun run build --filter=@ai-photostudio/web (must pass)
+          6. Commit changes: git add -A && git commit -m 'feat: implement issue #${ISSUE_NUM}'
+          7. Push branch
+          8. Create PR with 'Closes #${ISSUE_NUM}'"
+      
+      - name: Push and Create PR
+        run: |
+          BRANCH="agent/${ISSUE_NUM}-task"
+          git push -u origin HEAD 2>&1 | tail -3
+          gh pr create \
+            --title "Agent: ${{ github.event.issue.title }}" \
+            --body "## Summary
+          Automated implementation by Gemini CLI
+          
+          Closes #${{ github.event.issue.number }}" \
+            --base main 2>&1 || true
