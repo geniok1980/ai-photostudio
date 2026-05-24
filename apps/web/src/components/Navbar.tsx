@@ -37,7 +37,10 @@ const Navbar: React.FC = () => {
   const authLinks = isLoggedIn ? (
     <>
       <Link to="/app" className={linkClass('/app')}>
-        Генерация
+        Портрет
+      </Link>
+      <Link to="/app/product" className={linkClass('/app/product')}>
+        Товары
       </Link>
       <Link to="/app/history" className={linkClass('/app/history')}>
         История
@@ -131,7 +134,14 @@ const Navbar: React.FC = () => {
                   onClick={() => setMobileOpen(false)}
                   className="block px-4 py-2 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-gray-800"
                 >
-                  Генерация
+                  Портрет
+                </Link>
+                <Link
+                  to="/app/product"
+                  onClick={() => setMobileOpen(false)}
+                  className="block px-4 py-2 rounded-lg text-sm text-gray-300 hover:text-white hover:bg-gray-800"
+                >
+                  Товары
                 </Link>
                 <Link
                   to="/app/history"

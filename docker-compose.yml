@@ -1,0 +1,13 @@
+services:
+  photostudio:
+    build: .
+    container_name: ai-photostudio
+    restart: unless-stopped
+    ports:
+      - "3007:3001"
+    environment:
+      - PORT=3001
+      - CORS_ORIGIN=http://localhost:3007
+      - APP_URL=http://localhost:3007
+      - JWT_SECRET=ai-photostudio-docker-secret-key
+      # OpenRouter key not set — preview mode without AI generation

@@ -79,7 +79,7 @@ const Dashboard: React.FC = () => {
     setResult(null);
 
     try {
-      const res = await generatePhoto(selectedFile, selectedLocation);
+      const res = await generatePhoto(selectedFile, { modeId: 'portrait', locationId: selectedLocation });
       
       // Wait a bit and load history to see the new item
       setTimeout(() => {
