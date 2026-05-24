@@ -36,7 +36,7 @@ interface User {
 }
 
 const ProductDashboard: React.FC = () => {
-  const [activeMode, setActiveMode] = useState<'portrait' | 'product'>('portrait');
+  const [activeMode, setActiveMode] = useState<'portrait' | 'product' | 'interior'>('portrait');
   const [modes, setModes] = useState<Mode[]>([]);
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -97,16 +97,23 @@ const ProductDashboard: React.FC = () => {
       }
     }
 
+    if (activeMode === 'interior') {
+      if (!selectedConcept) {
+        setError('Пожалуйста, выберите стиль интерьера');
+        return;
+      }
+    }
+
     setGenerating(true);
     setError('');
     setResult(null);
 
     try {
       const res = await generatePhoto(selectedFile, {
-        modeId: activeMode === 'product' ? 'product' : undefined,
+        modeId: activeMode === 'product' ? 'product' : activeMode === 'interior' ? 'interior' : undefined,
         conceptId: selectedConcept || undefined,
         categoryId: selectedCategory || undefined,
-        productDescription: activeMode === 'product' ? productDescription : undefined,
+        productDescription: activeMode === 'product' ? productDescription : activeMode === 'interior' ? 'room' : undefined,
       });
 
       setError('Генерация запущена! Результат появится в истории через несколько секунд.');
@@ -168,7 +175,7 @@ const ProductDashboard: React.FC = () => {
             <button
               key={mode.id}
               onClick={() => {
-                setActiveMode(mode.name as 'portrait' | 'product');
+                setActiveMode(mode.name as 'portrait' | 'product' | 'interior');
                 setError('');
                 setResult(null);
               }}
@@ -281,10 +288,48 @@ const ProductDashboard: React.FC = () => {
               </>
             )}
 
+            {/* Interior-specific fields */}
+            {activeMode === 'interior' && (
+              <>
+                <div className="card">
+                  <h2 className="text-lg font-semibold text-white mb-4">Стиль интерьера</h2>
+                  <div className="space-y-2">
+                    {concepts.filter(c => c.mode_id === modes.find(m => m.name === 'interior')?.id).map((concept) => (
+                      <button
+                        key={concept.id}
+                        onClick={() => setSelectedConcept(concept.id)}
+                        className={`w-full text-left p-4 rounded-xl transition-all ${
+                          selectedConcept === concept.id
+                            ? 'bg-purple-600/20 border border-purple-500/50'
+                            : 'bg-gray-800/50 border border-gray-700/50 hover:border-gray-600'
+                        }`}
+                      >
+                        <p className="font-semibold text-white">{concept.display_name}</p>
+                        <p className="text-xs text-gray-400 mt-1">{concept.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="card">
+                  <h2 className="text-lg font-semibold text-white mb-4">Описание помещения</h2>
+                  <textarea
+                    value={productDescription}
+                    onChange={(e) => setProductDescription(e.target.value)}
+                    placeholder="Например: гостиная с большими окнами, светлые стены, деревянный пол..."
+                    className="w-full bg-gray-800/80 border border-gray-700 rounded-xl p-4 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 resize-none h-24"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    Опишите текущее помещение — AI преобразует его в выбранном стиле
+                  </p>
+                </div>
+              </>
+            )}
+
             {/* Generate Button */}
             <button
               onClick={handleGenerate}
-              disabled={!selectedFile || generating || (activeMode === 'product' && !selectedConcept)}
+              disabled={!selectedFile || generating || (activeMode === 'product' && !selectedConcept) || (activeMode === 'interior' && !selectedConcept)}
               className="btn-primary w-full text-lg py-4"
             >
               {generating ? (
@@ -297,6 +342,8 @@ const ProductDashboard: React.FC = () => {
                 </span>
               ) : activeMode === 'portrait' ? (
                 'Сгенерировать портрет'
+              ) : activeMode === 'interior' ? (
+                'Сгенерировать интерьер'
               ) : (
                 'Сгенерировать фото товара'
               )}
@@ -326,7 +373,31 @@ const ProductDashboard: React.FC = () => {
               <h2 className="text-lg font-semibold text-white mb-4">
                 {activeMode === 'portrait' ? 'Выберите локацию' : 'Как это работает'}
               </h2>
-              {activeMode === 'product' ? (
+              {activeMode === 'interior' ? (
+                <div className="space-y-4 text-sm text-gray-400">
+                  <div className="flex gap-3">
+                    <div className="w-8 h-8 rounded-full bg-purple-600/20 flex items-center justify-center text-purple-400 font-bold flex-shrink-0">1</div>
+                    <div>
+                      <p className="text-white font-medium">Сфотографируйте комнату</p>
+                      <p className="text-xs mt-1">Подойдёт любое фото интерьера</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="w-8 h-8 rounded-full bg-purple-600/20 flex items-center justify-center text-purple-400 font-bold flex-shrink-0">2</div>
+                    <div>
+                      <p className="text-white font-medium">Выберите стиль</p>
+                      <p className="text-xs mt-1">Современный, классика, лофт, минимализм или скандинавский</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <div className="w-8 h-8 rounded-full bg-purple-600/20 flex items-center justify-center text-purple-400 font-bold flex-shrink-0">3</div>
+                    <div>
+                      <p className="text-white font-medium">Получите дизайн интерьера</p>
+                      <p className="text-xs mt-1">Готово для дизайн-проекта или визуализации</p>
+                    </div>
+                  </div>
+                </div>
+              ) : activeMode === 'product' ? (
                 <div className="space-y-4 text-sm text-gray-400">
                   <div className="flex gap-3">
                     <div className="w-8 h-8 rounded-full bg-purple-600/20 flex items-center justify-center text-purple-400 font-bold flex-shrink-0">1</div>
@@ -368,7 +439,29 @@ const ProductDashboard: React.FC = () => {
 
             {/* Quick Tips */}
             <div className="card">
-              <h2 className="text-lg font-semibold text-white mb-3">Советы</h2>
+              <h2 className="text-lg font-semibold text-white mb-3">
+                {activeMode === 'interior' ? 'Советы по интерьеру' : 'Советы'}
+              </h2>
+              {activeMode === 'interior' ? (
+                <ul className="space-y-2 text-sm text-gray-400">
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400 mt-0.5">•</span>
+                    <span>Фотографируйте комнату при хорошем освещении</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400 mt-0.5">•</span>
+                    <span>Уберите лишние предметы для лучшего результата</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400 mt-0.5">•</span>
+                    <span>Современный стиль — для светлых помещений</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-purple-400 mt-0.5">•</span>
+                    <span>Лофт отлично работает с индустриальными помещениями</span>
+                  </li>
+                </ul>
+              ) : (
               <ul className="space-y-2 text-sm text-gray-400">
                 <li className="flex items-start gap-2">
                   <span className="text-purple-400 mt-0.5">•</span>
@@ -387,6 +480,7 @@ const ProductDashboard: React.FC = () => {
                   <span>Подробное описание товара улучшает качество генерации</span>
                 </li>
               </ul>
+            )}
             </div>
           </div>
         </div>

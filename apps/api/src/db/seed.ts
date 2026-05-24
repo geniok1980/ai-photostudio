@@ -14,6 +14,7 @@ const seed = async () => {
 
   const portraitModeId = uuidv4();
   const productModeId = uuidv4();
+  const interiorModeId = uuidv4();
 
   insertMode.run({
     $id: portraitModeId,
@@ -31,13 +32,21 @@ const seed = async () => {
     $icon: '📦',
     $sort_order: 2,
   });
+  insertMode.run({
+    $id: interiorModeId,
+    $name: 'interior',
+    $display_name: 'Интерьер',
+    $description: 'Преобразите интерьер вашей комнаты в любом стиле',
+    $icon: '🏠',
+    $sort_order: 3,
+  });
 
   console.log('Seeding concepts...');
   const insertConcept = db.prepare(
     'INSERT OR IGNORE INTO concepts (id, mode_id, name, display_name, description, prompt_template, sort_order, is_active) VALUES ($id, $mode_id, $name, $display_name, $description, $prompt_template, $sort_order, 1)'
   );
 
-  // Portrait concepts (existing - location based)
+  // Portrait concepts
   insertConcept.run({
     $id: uuidv4(),
     $mode_id: portraitModeId,
@@ -75,6 +84,53 @@ const seed = async () => {
     $description: 'Художественная композиция с дополнительными предметами',
     $prompt_template: 'Artistic composition of {product_description} with complementary props, flat lay style, aesthetic arrangement, warm lighting, premium product photography, social media ready, professional styling, high detail',
     $sort_order: 3,
+  });
+
+  // Interior concepts
+  insertConcept.run({
+    $id: uuidv4(),
+    $mode_id: interiorModeId,
+    $name: 'modern',
+    $display_name: 'Современный',
+    $description: 'Чистые линии, нейтральные тона, минимализм',
+    $prompt_template: 'Interior design of a room in modern style. Clean lines, neutral colors, minimalist furniture, natural light, spacious, contemporary decor, professional real estate photography, high quality',
+    $sort_order: 1,
+  });
+  insertConcept.run({
+    $id: uuidv4(),
+    $mode_id: interiorModeId,
+    $name: 'classic',
+    $display_name: 'Классический',
+    $description: 'Элегантная классика с элементами декора',
+    $prompt_template: 'Interior design of a room in classic style. Elegant furniture, decorative moldings, warm tones, chandelier, traditional decor, luxurious fabrics, professional photography',
+    $sort_order: 2,
+  });
+  insertConcept.run({
+    $id: uuidv4(),
+    $mode_id: interiorModeId,
+    $name: 'loft',
+    $display_name: 'Лофт',
+    $description: 'Индустриальный стиль с кирпичными стенами',
+    $prompt_template: 'Interior design of a room in loft style. Brick walls, exposed pipes, industrial lighting, wooden floors, urban aesthetic, spacious, high ceilings, professional photography',
+    $sort_order: 3,
+  });
+  insertConcept.run({
+    $id: uuidv4(),
+    $mode_id: interiorModeId,
+    $name: 'minimal',
+    $display_name: 'Минимализм',
+    $description: 'Минимум мебели, максимум пространства',
+    $prompt_template: 'Interior design of a room in minimalist style. Clean empty spaces, minimal furniture, monochromatic palette, natural materials, zen atmosphere, professional photography',
+    $sort_order: 4,
+  });
+  insertConcept.run({
+    $id: uuidv4(),
+    $mode_id: interiorModeId,
+    $name: 'scandinavian',
+    $display_name: 'Скандинавский',
+    $description: 'Светлые тона, уют, натуральные материалы',
+    $prompt_template: 'Interior design of a room in Scandinavian style. Light wood, white walls, cozy textiles, plants, natural light, hygge atmosphere, simple elegant furniture, professional photography',
+    $sort_order: 5,
   });
 
   console.log('Seeding product categories...');
@@ -120,7 +176,6 @@ const seed = async () => {
       ],
       background: { color: '#1a1a2e' },
     }),
-    $sort_order: 1,
   });
 
   insertTemplate.run({
@@ -136,7 +191,6 @@ const seed = async () => {
       ],
       background: { color: '#16213e' },
     }),
-    $sort_order: 2,
   });
 
   insertTemplate.run({
@@ -152,7 +206,6 @@ const seed = async () => {
       ],
       background: { color: '#0a0a1a', gradient: true },
     }),
-    $sort_order: 3,
   });
 
   console.log('Seeding locations...');
